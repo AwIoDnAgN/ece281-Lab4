@@ -25,7 +25,14 @@ end top_basys3;
 architecture top_basys3_arch of top_basys3 is
 
     -- signal declarations
-    
+    signal clk_div        : std_logic;
+    signal floor_0        : std_logic_vector(3 downto 0);  -- from FSM
+    signal hex_disp       : std_logic_vector(3 downto 0);  -- for 7seg decoder
+    signal disp_select    : std_logic_vector(3 downto 0);  -- from TDM
+    signal reset_clk      : std_logic;
+    signal reset_fsm      : std_logic;
+    signal reset_master   : std_logic;
+    signal tdm_data       : std_logic_vector(3 downto 0);
   
 	-- component declarations
     component sevenseg_decoder is
@@ -70,14 +77,56 @@ architecture top_basys3_arch of top_basys3 is
 	
 begin
 	-- PORT MAPS ----------------------------------------
-    	
+    -- Reset logic (active-high)
+    reset_master <= btnU;
+    reset_clk    <= btnL;
+    reset_fsm    <= btnR;
+    
+    -- LED 15 shows the FSM clock
+    led(15) <= clk_div;
+    led(14 downto 0) <= (others => '0'); -- unused
+    
+    -- Clock Divider instance (0.5s pulse from 100 MHz)
+    clk_div_inst : clock_divider
+        generic map (k_DIV => 25000000)
+        port map (
+            i_clk    => clk,
+            i_reset  => reset_clk,
+            o_clk    => clk_div
+        );
 	
-	-- CONCURRENT STATEMENTS ----------------------------
-	
-	-- LED 15 gets the FSM slow clock signal. The rest are grounded.
-	
-	-- leave unused switches UNCONNECTED. Ignore any warnings this causes.
-	
-	-- reset signals
+    -- Elevator FSM instance (only single elevator for now)
+    elevator0 : elevator_controller_fsm
+        port map (
+            i_clk       => clk_div,
+            i_reset     => reset_fsm,
+            is_stopped  => sw(14),        -- tie to sw14 as stop
+            go_up_down  => sw(15),        -- tie to sw15 as up/down
+            o_floor     => floor_0
+        );
+
+    -- Time-Division Multiplexing: 4 displays (D3 to D0)
+    mux_disp : TDM4
+        generic map (k_WIDTH => 4)
+        port map (
+            i_clk  => clk,
+            i_reset => reset_master,
+            i_D3 => x"F",        -- display 3 = F
+            i_D2 => floor_0,     -- display 2 = elevator floor
+            i_D1 => x"F",        -- display 1 = F
+            i_D0 => x"0",        -- display 0 = 0 (or can be another floor input later)
+            o_data => tdm_data,
+            o_sel => disp_select
+        );
+
+    -- 7-segment decoding
+    sseg : sevenseg_decoder
+        port map (
+            i_Hex => tdm_data,
+            o_seg_n => seg
+        );
+
+    -- Anode control
+    an <= not disp_select;
 	
 end top_basys3_arch;
